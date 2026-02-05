@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supercar Sound Quiz</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>Supercar Sound Quiz 🏎️</h1>
+
+    <div id="start-screen" class="card">
+        <h2>GAME SETUP</h2>
+        <p style="color:#aaa; font-size:0.9em; margin-bottom:20px;">
+            スーパーカーのエンジン音を聞いて車種を当てよう！<br>
+            全データからランダムに10問出題されます。
+        </p>
+        
+        <div class="mode-group">
+            <span style="color:#aaa; display:block; margin-bottom:5px;">モード選択</span>
+            <div class="selection-grid">
+                <button class="select-btn" id="btn-mode-time" onclick="selectMode(true)">タイムアタック</button>
+                <button class="select-btn" id="btn-mode-relax" onclick="selectMode(false)">リラックス</button>
+            </div>
+        </div>
+        <button id="start-btn" class="big-start-btn" onclick="startGame()" disabled>START GAME</button>
+    </div>
+
+    <div id="game-screen">
+        <div class="game-header">
+            <span id="progress-text">Q 1 / 10</span>
+            <div class="header-right">
+                <span style="color:#f1c40f; font-weight:bold;">SCORE: <span id="score">0</span></span>
+                <button class="menu-btn" onclick="backToMenu()">メニュー</button>
+            </div>
+        </div>
+        
+        <div id="timer-wrapper" style="margin-top:5px; display:none;">
+            <div style="background:#333; height:8px; border-radius:4px; overflow:hidden;">
+                <div id="timer-bar" class="timer-bar"></div>
+            </div>
+            <div style="text-align:right; font-size:0.8em; color:#aaa; margin-top:2px;">残り <span id="time-left">10</span> 秒</div>
+        </div>
+        <div id="quiz-area" class="card"></div>
+    </div>
+
+    <div id="final-screen" class="card">
+        <h2>FINISH!</h2>
+        <div style="font-size:4em; color:#f1c40f; margin:20px 0;" id="final-score">0</div>
+        <p id="rank-comment" style="font-size:1.2em; font-weight:bold;"></p>
+        <button class="btn" style="background:#3498db; margin-top:20px;" onclick="location.reload()">タイトルに戻る</button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🎵 オーディオ & 効果音システム
+        // ==========================================
+        let currentAudio = null; 
+        
+        function playEngineSound(fileName) {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.onended = null;
+                currentAudio.currentTime = 0;
+            }
+            if (!fileName) return;
+
+            currentAudio = new Audio(fileName);
+            currentAudio.play().catch(e => {
+                console.log("自動再生ブロック:", e);
+            });
+
+            const icon = document.getElementById('sound-icon');
+            if(icon) {
+                icon.classList.add('sound-playing');
+                currentAudio.addEventListener('ended', () => {
+                   if(icon) icon.classList.remove('sound-playing');
+                });
+            }
+        }
+
+        function stopEngineSound() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.onended = null;
+                currentAudio = null;
+            }
+            const icon = document.getElementById('sound-icon');
+            if(icon) icon.classList.remove('sound-playing');
+        }
+
+        let audioCtx;
+        function playSE(type) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const now = audioCtx.currentTime;
+            if (type === 'correct') {
+                osc.type = 'sine'; osc.frequency.setValueAtTime(880, now); osc.frequency.setValueAtTime(1760, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            } else {
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.linearRampToValueAtTime(100, now + 0.3);
+                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            }
+            osc.start(now); osc.stop(now + 0.3); osc.connect(gain); gain.connect(audioCtx.destination);
+        }
+
+        // ==========================================
+        // 🎮 ゲームロジック
+        // ==========================================
+        let isTimerMode = null;      
+        let currentQuestions = [];
+        let currentIndex = 0;
+        let score = 0;
+        let timerInterval;
+        let timeLeft = 10;
+        let isAnswered = false;
+
+        function selectMode(mode) {
+            isTimerMode = mode;
+            document.getElementById('btn-mode-time').classList.remove('selected');
+            document.getElementById('btn-mode-relax').classList.remove('selected');
+            document.getElementById(mode ? 'btn-mode-time' : 'btn-mode-relax').classList.add('selected');
+            document.getElementById('start-btn').disabled = false;
+        }
+
+        function startGame() {
+            // 配列をコピー
+            let shuffled = [...soundQuizzes];
+            
+            // Fisher-Yates シャッフルアルゴリズムでランダムに並べ替え
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+
+            // 先頭から10個を取得（データが10個未満の場合は全て取得）
+            currentQuestions = shuffled.slice(0, 10);
+
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+            if (isTimerMode) document.getElementById('timer-wrapper').style.display = 'block';
+            loadQuestion();
+        }
+
+        function backToMenu() {
+            location.reload();
+        }
+
+        function loadQuestion() {
+            isAnswered = false;
+            stopEngineSound(); 
+
+            const q = currentQuestions[currentIndex];
+            document.getElementById('progress-text').innerText = `Q ${currentIndex + 1} / ${currentQuestions.length}`;
+            
+            let statusText = "Now Playing...";
+            if (isTimerMode) {
+                statusText = "音声確認中... (再生終了後に計測開始)";
+            }
+            
+            let mediaHTML = `<div id="sound-area" class="sound-container">
+                <div class="sound-icon" id="sound-icon" onclick="playEngineSound('${q.soundFile}')"></div>
+                <p id="sound-status" style="color:#e74c3c; font-size:0.9em; margin-top:10px; font-weight:bold;">${statusText}</p>
+            </div>
+            <div id="video-area" class="video-wrapper"></div>`;
+
+            let buttonsHTML = '<div class="options-grid">';
+            q.o.forEach((opt, idx) => {
+                buttonsHTML += `<button class="btn option-btn" onclick="checkAnswer(${idx}, this)">${opt}</button>`;
+            });
+            buttonsHTML += '</div>';
+
+            document.getElementById('quiz-area').innerHTML = `<h2 style="margin:0 0 10px 0;">${q.q}</h2>${mediaHTML}${buttonsHTML}<div id="result-msg" style="min-height:30px; margin-top:15px; font-weight:bold;"></div><button id="next-btn" class="btn" style="background:#3498db; margin-top:10px; display:none;" onclick="goNext()">次の問題へ >></button>`;
+
+            setTimeout(() => {
+                playEngineSound(q.soundFile);
+
+                if (isTimerMode) {
+                    if(currentAudio) {
+                        currentAudio.onended = function() {
+                            if(!isAnswered) { 
+                                playEngineSound(q.soundFile); 
+                                const statusEl = document.getElementById('sound-status');
+                                if(statusEl) statusEl.innerText = "計測スタート！";
+                                startTimer();
+                                currentAudio.onended = null; 
+                            }
+                        };
+                    }
+                }
+            }, 500);
+        }
+
+        function startTimer() {
+            timeLeft = 10;
+            updateTimerUI();
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerUI();
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timeUp();
+                }
+            }, 1000);
+        }
+
+        function updateTimerUI() {
+            document.getElementById('time-left').innerText = timeLeft;
+            document.getElementById('timer-bar').style.width = (timeLeft * 10) + "%";
+        }
+
+        function timeUp() {
+            if(isAnswered) return;
+            checkAnswer(-1, null);
+        }
+
+        function checkAnswer(idx, btn) {
+            if (isAnswered) return;
+            isAnswered = true;
+            clearInterval(timerInterval);
+            stopEngineSound();
+
+            const q = currentQuestions[currentIndex];
+            const allBtns = document.querySelectorAll('.option-btn');
+            const resultMsg = document.getElementById('result-msg');
+            
+            const soundArea = document.getElementById('sound-area');
+            const videoArea = document.getElementById('video-area');
+            
+            soundArea.style.display = 'none';
+            videoArea.style.display = 'block';
+            
+            videoArea.innerHTML = `
+                <video class="result-video" controls autoplay>
+                    <source src="${q.video}" type="video/mp4">
+                    <p>動画を再生できません。</p>
+                </video>`;
+
+            let isCorrect = (idx === q.a);
+            if (isCorrect) {
+                playSE('correct');
+                let points = 100;
+                if (isTimerMode) {
+                    let bonusTime = (timeLeft === 10) ? 10 : (timeLeft + 1);
+                    points += (bonusTime * 10);
+                }
+                score += points;
+                resultMsg.innerHTML = `<span style="color:#2ecc71">正解！ +${points}点</span>`;
+                if(btn) btn.classList.add('correct-btn');
+            } else {
+                playSE('wrong');
+                resultMsg.innerHTML = `<span style="color:#e74c3c">不正解... 正解は「${q.o[q.a]}」</span>`;
+                if(btn) btn.classList.add('wrong-btn');
+                allBtns[q.a].classList.add('correct-btn');
+            }
+            document.getElementById('score').innerText = score;
+            allBtns.forEach(b => b.disabled = true);
+            document.getElementById('next-btn').style.display = 'block';
+        }
+
+        function goNext() {
+            currentIndex++;
+            if (currentIndex < currentQuestions.length) loadQuestion();
+            else showResult();
+        }
+
+        function showResult() {
+            document.getElementById('game-screen').style.display = 'none';
+            document.getElementById('final-screen').style.display = 'block';
+            document.getElementById('final-score').innerText = score;
+            const maxScore = currentQuestions.length * (isTimerMode ? 200 : 100);
+            const rank = document.getElementById('rank-comment');
+            if (score >= maxScore * 0.8) {
+                rank.innerText = "究極のサウンドマイスター！"; rank.style.color = "#f1c40f"; playSE('correct');
+            } else if (score >= maxScore * 0.5) {
+                rank.innerText = "立派な車好きですね！"; rank.style.color = "#2ecc71";
+            } else {
+                rank.innerText = "もっと音を聞き分けよう！"; rank.style.color = "#fff";
+            }
+        }
+
+        // ==========================================
+        // 💾 クイズデータリスト
+        // ==========================================
+        const soundQuizzes = [
+            { a:1, q:"高音サウンド", soundFile:"ランボルギーニ アヴェンタドール.mp3", video:"ランボルギーニ アヴェンタドール.mp4", o:["ダッジ バイパー", "ランボルギーニ アヴェンタドール", "AMG GT", "コルベット"] },
+            { a:0, q:"独特な乾いた音", soundFile:"フェラーリ 458.mp3", video:"フェラーリ 458.mp4", o:["フェラーリ 458", "マスタング", "アストンマーティン", "ベントレー"] },
+            { a:2, q:"ドロドロとした低音", soundFile:"GTR.mp3", video:"GTR.mp4", o:["ポルシェ 911", "NSX", "GT-R", "ダッジ チャレンジャー"] },
+            { a:2, q:"走りの美学", soundFile:"レクサス LC.mp3", video:"レクサス LC.mp4", o:["スープラ", "RX-7", "レクサス LC", "シビック TypeR"] },
+            { a:0, q:"天使の咆哮", soundFile:"レクサス LFA.mp3", video:"レクサス LFA.mp4", o:["レクサス LFA", "アウディ R8", "ガヤルド", "ウラカン"] },
+            { a:1, q:"ロータリーサウンド", soundFile:"マツダ　787B.mp3", video:"マツダ　787B.mp4", o:["マツダ　RX-7", "マツダ　787B", "ランエボ", "インプレッサ"] },
+            { a:2, q:"水平対向エンジンの鼓動", soundFile:"ポルシェ 911 gt3.mp3", video:"ポルシェ 911 gt3.mp4", o:["86/BRZ", "スバル　レガシィRS", "ポルシェ 911 gt3", "WRX STI"] },
+            { a:3, q:"悪魔の音", soundFile:"ダッジ　チャレンジャー　SRTデーモン.mp3", video:"ダッジ　チャレンジャー　SRTデーモン.mp4", o:["フォード　マスタング", "シボレー　カマロ", "ケーニグセグ", "ダッジ　チャレンジャー　SRTデーモン"] },
+            { a:0, q:"ハイブリッドモーター混じり", soundFile:"ホンダ NSX(新型).mp3", video:"ホンダ NSX(新型).mp4", o:["ホンダ NSX(新型)", "プリウス", "i8", "ラ・フェラーリ"] },
+            { a:1, q:"極限の鼓動", soundFile:"フェラーリF1 V12.mp3", video:"フェラーリF1 V12.mp4", o:["フェラーリF1 V6", "フェラーリF1 V12", "フェラーリF1 V10", "フェラーリF1 V8"] }
+        ];
+    </script>
+</body>
+</html>

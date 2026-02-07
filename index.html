@@ -2,23 +2,23 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Supercar Sound Quiz</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <h1>Supercar Sound Quiz 🏎️</h1>
+    <h1>Supercar Quiz 🏎️</h1>
 
     <div id="start-screen" class="card">
         <h2>GAME SETUP</h2>
-        <p style="color:#aaa; font-size:0.9em; margin-bottom:20px;">
-            スーパーカーのエンジン音を聞いて車種を当てよう！<br>
-            全データからランダムに10問出題されます。
+        <p style="color:#aaa; font-size:0.9em; margin-bottom:20px; line-height: 1.5;">
+            スーパーカーのエンジン音を聞いて<br>車種を当てよう！<br>
+            <span style="font-size:0.8em; color:#777;">※マナーモードを解除して音を出してください</span>
         </p>
         
         <div class="mode-group">
-            <span style="color:#aaa; display:block; margin-bottom:5px;">モード選択</span>
+            <span style="color:#aaa; display:block; margin-bottom:10px;">モード選択</span>
             <div class="selection-grid">
                 <button class="select-btn" id="btn-mode-time" onclick="selectMode(true)">タイムアタック</button>
                 <button class="select-btn" id="btn-mode-relax" onclick="selectMode(false)">リラックス</button>
@@ -31,7 +31,7 @@
         <div class="game-header">
             <span id="progress-text">Q 1 / 10</span>
             <div class="header-right">
-                <span style="color:#f1c40f; font-weight:bold;">SCORE: <span id="score">0</span></span>
+                <span style="color:#f1c40f; font-weight:bold; font-size:0.9em;">SCORE: <span id="score">0</span></span>
                 <button class="menu-btn" onclick="backToMenu()">メニュー</button>
             </div>
         </div>
@@ -42,7 +42,7 @@
             </div>
             <div style="text-align:right; font-size:0.8em; color:#aaa; margin-top:2px;">残り <span id="time-left">10</span> 秒</div>
         </div>
-        <div id="quiz-area" class="card"></div>
+        <div id="quiz-area" class="card quiz-card"></div>
     </div>
 
     <div id="final-screen" class="card">
@@ -67,8 +67,11 @@
             if (!fileName) return;
 
             currentAudio = new Audio(fileName);
+            // スマホでの自動再生エラーを防ぐためcatchを入れる
             currentAudio.play().catch(e => {
-                console.log("自動再生ブロック:", e);
+                console.log("自動再生ブロック (タップして再生してください):", e);
+                const statusEl = document.getElementById('sound-status');
+                if(statusEl) statusEl.innerText = "▶ ボタンを押して再生";
             });
 
             const icon = document.getElementById('sound-icon');
@@ -92,6 +95,7 @@
 
         let audioCtx;
         function playSE(type) {
+            // スマホ用：ユーザー操作のタイミングでAudioContextを確実に再開
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if (audioCtx.state === 'suspended') audioCtx.resume();
 
@@ -125,25 +129,28 @@
             document.getElementById('btn-mode-relax').classList.remove('selected');
             document.getElementById(mode ? 'btn-mode-time' : 'btn-mode-relax').classList.add('selected');
             document.getElementById('start-btn').disabled = false;
+            
+            // スマホ対応: AudioContextを事前に作っておく（iOS対策）
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
 
         function startGame() {
-            // 配列をコピー
+            // スマホ対応: スタートボタン押下時にAudioContextをアクティブ化
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
             let shuffled = [...soundQuizzes];
-            
-            // Fisher-Yates シャッフルアルゴリズムでランダムに並べ替え
             for (let i = shuffled.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
             }
-
-            // 先頭から10個を取得（データが10個未満の場合は全て取得）
             currentQuestions = shuffled.slice(0, 10);
 
             document.getElementById('start-screen').style.display = 'none';
             document.getElementById('game-screen').style.display = 'block';
             if (isTimerMode) document.getElementById('timer-wrapper').style.display = 'block';
-            loadQuestion();
+            
+            // 少し遅延させて画面切り替えアニメーションを安定させる
+            setTimeout(loadQuestion, 100);
         }
 
         function backToMenu() {
@@ -170,11 +177,12 @@
 
             let buttonsHTML = '<div class="options-grid">';
             q.o.forEach((opt, idx) => {
+                // スマホで見やすいように文字サイズ調整クラスを追加
                 buttonsHTML += `<button class="btn option-btn" onclick="checkAnswer(${idx}, this)">${opt}</button>`;
             });
             buttonsHTML += '</div>';
 
-            document.getElementById('quiz-area').innerHTML = `<h2 style="margin:0 0 10px 0;">${q.q}</h2>${mediaHTML}${buttonsHTML}<div id="result-msg" style="min-height:30px; margin-top:15px; font-weight:bold;"></div><button id="next-btn" class="btn" style="background:#3498db; margin-top:10px; display:none;" onclick="goNext()">次の問題へ >></button>`;
+            document.getElementById('quiz-area').innerHTML = `<h2 class="quiz-title">${q.q}</h2>${mediaHTML}${buttonsHTML}<div id="result-msg" style="min-height:30px; margin-top:15px; font-weight:bold;"></div><button id="next-btn" class="btn" style="background:#3498db; margin-top:10px; display:none;" onclick="goNext()">次の問題へ >></button>`;
 
             setTimeout(() => {
                 playEngineSound(q.soundFile);
@@ -235,8 +243,9 @@
             soundArea.style.display = 'none';
             videoArea.style.display = 'block';
             
+            // playsinline と webkit-playsinline を追加 (iPhoneで全画面になるのを防ぐ)
             videoArea.innerHTML = `
-                <video class="result-video" controls autoplay>
+                <video class="result-video" controls autoplay playsinline webkit-playsinline>
                     <source src="${q.video}" type="video/mp4">
                     <p>動画を再生できません。</p>
                 </video>`;
@@ -284,9 +293,6 @@
             }
         }
 
-        // ==========================================
-        // 💾 クイズデータリスト
-        // ==========================================
         const soundQuizzes = [
             { a:1, q:"高音サウンド", soundFile:"ランボルギーニ アヴェンタドール.mp3", video:"ランボルギーニ アヴェンタドール.mp4", o:["ダッジ バイパー", "ランボルギーニ アヴェンタドール", "AMG GT", "コルベット"] },
             { a:0, q:"独特な乾いた音", soundFile:"フェラーリ 458.mp3", video:"フェラーリ 458.mp4", o:["フェラーリ 458", "マスタング", "アストンマーティン", "ベントレー"] },
